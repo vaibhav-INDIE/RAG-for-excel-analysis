@@ -1,0 +1,7 @@
+streamlit
+pandas
+numpy
+PyMuPDF
+google-generativeai
+google-api-core
+tabulate
