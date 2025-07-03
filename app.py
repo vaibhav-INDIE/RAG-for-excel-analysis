@@ -205,7 +205,9 @@ with st.sidebar:
                 else:
                     try:
                         file_bytes = file.getvalue()
-                        xls = pd.ExcelFile(io.BytesIO(file_bytes))
+                        # --- FIX: Explicitly specify the engine for reading .xlsx files ---
+                        xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
+                        
                         # For simplicity, we configure based on the first sheet's columns.
                         first_sheet_df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
                         all_cols = first_sheet_df.columns.tolist()
