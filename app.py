@@ -22,6 +22,8 @@ if "api_key_configured" not in st.session_state:
     st.session_state.api_key_configured = False
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
+if "available_embed_models" not in st.session_state:
+    st.session_state.available_embed_models = ["text-embedding-004", "gemini-embedding-1.5"] # Fallbacks
 
 
 # --- Utility & State Management Functions ---
@@ -44,7 +46,7 @@ def handle_rate_limiting(e):
         "This is likely due to the free tier's limitations.\n"
         "**Suggestions:**\n"
         "1. **Wait a minute** and try again.\n"
-        "2. Switch to a less-frequently limited model like **'gemini-1.5-flash'** in the sidebar.\n"
+        "2. Switch to a less-frequently limited model in the sidebar.\n"
         "3. **Check your Google AI Platform billing details** to upgrade to a paid plan for higher limits."
     )
 
@@ -63,15 +65,6 @@ def extract_from_pdf(file_stream, file_name):
 def generate_text_from_df(df, strategy, config, source_name):
     """
     Converts a DataFrame into a text-based format for embedding based on the chosen strategy.
-    
-    Args:
-        df (pd.DataFrame): The input DataFrame from an Excel sheet.
-        strategy (str): The processing strategy ('row', 'markdown', 'template').
-        config (dict): Configuration for the chosen strategy.
-        source_name (str): The name of the source file and sheet.
-
-    Returns:
-        pd.DataFrame: A DataFrame with 'summary' and 'source' columns.
     """
     df = df.copy().dropna(how='all') # Drop rows that are entirely empty
 
@@ -116,14 +109,15 @@ def generate_text_from_df(df, strategy, config, source_name):
 
 
 def embed_text(df):
-    model = "text-embedding-004"
+    """Embeds the generated text chunks using the selected model."""
+    model = st.session_state.embed_model_choice
 
     if df.empty:
         st.warning("No text to embed.")
         return None
 
     all_embeddings = []
-    progress_bar = st.progress(0, text="Embedding in progress...")
+    progress_bar = st.progress(0, text=f"Embedding with {model}...")
 
     try:
         for i, summary in enumerate(df['summary']):
@@ -134,7 +128,6 @@ def embed_text(df):
             )
 
             all_embeddings.append(response.embeddings[0].values)
-
             progress_bar.progress((i + 1) / len(df))
 
         df['embedding'] = all_embeddings
@@ -157,6 +150,13 @@ with st.sidebar:
             st.session_state.client = genai.Client(api_key=api_key)
     
             if not st.session_state.api_key_configured:
+                with st.spinner("Authenticating and fetching available models..."):
+                    # Dynamically fetch available embedding models
+                    models_list = list(st.session_state.client.models.list())
+                    fetched_embed_models = [m.name for m in models_list if 'embedContent' in m.supported_actions]
+                    if fetched_embed_models:
+                        st.session_state.available_embed_models = fetched_embed_models
+                        
                 st.success("API Key configured!", icon="🔑")
     
             st.session_state.api_key_configured = True
@@ -165,16 +165,26 @@ with st.sidebar:
             st.error(f"Invalid API Key: {e}")
             st.session_state.api_key_configured = False
 
+    # --- Generative Model Selection ---
     model_choice = st.selectbox(
         "🤖 Select Generative Model",
         (
             "gemini-2.0-flash",        
-            "gemini-2.0-pro",          
+            "gemini-2.0-pro-exp",          
             "gemini-2.0-flash-lite",   
             "gemini-1.5-pro-latest",  
         ),
         index=0,
         disabled=not st.session_state.api_key_configured
+    )
+    
+    # --- Embedding Model Selection ---
+    st.session_state.embed_model_choice = st.selectbox(
+        "🧠 Select Embedding Model",
+        st.session_state.available_embed_models,
+        index=0,
+        disabled=not st.session_state.api_key_configured,
+        help="Select the model used to convert your documents into vector embeddings. If you encounter a 404 error, try a different model from this list."
     )
     
     st.divider()
@@ -187,7 +197,7 @@ with st.sidebar:
         disabled=not st.session_state.api_key_configured
     )
     
-    # --- New, Enhanced File Processing UI ---
+    # --- File Processing UI ---
     if uploaded_files:
         for file in uploaded_files:
             with st.expander(f"**Configure: {file.name}**", expanded=True):
@@ -212,7 +222,6 @@ with st.sidebar:
                 else:
                     try:
                         file_bytes = file.getvalue()
-                        # --- FIX: Explicitly specify the engine for reading .xlsx files ---
                         xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
                         
                         # For simplicity, we configure based on the first sheet's columns.
@@ -299,9 +308,9 @@ if not st.session_state.knowledge_base_df.empty:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    # New SDK embedding generation
+                    # Retrieve using the dynamically selected embedding model
                     response_emb = st.session_state.client.models.embed_content(
-                        model="text-embedding-004", 
+                        model=st.session_state.embed_model_choice, 
                         contents=prompt
                     )
                     question_emb = response_emb.embeddings[0].values
