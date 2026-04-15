@@ -2,7 +2,6 @@ streamlit
 pandas
 numpy
 PyMuPDF
-google-generativeai
-google-api-core
 tabulate
 openpyxl
+google-genai
