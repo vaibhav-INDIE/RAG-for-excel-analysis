@@ -117,32 +117,31 @@ def generate_text_from_df(df, strategy, config, source_name):
 
 def embed_text(df):
     model = "text-embedding-004"
+
     if df.empty:
         st.warning("No text to embed.")
         return None
-        
-    st.info(f"Embedding {len(df)} text chunks... this may take a moment.")
-    
+
     all_embeddings = []
     progress_bar = st.progress(0, text="Embedding in progress...")
-    
+
     try:
         for i, summary in enumerate(df['summary']):
-            time.sleep(0.05) # Small delay to avoid hitting per-minute quotas
-            embedding = genai.embed_content(model=model, content=summary)['embedding']
-            all_embeddings.append(embedding)
-            progress_bar.progress((i + 1) / len(df), text=f"Embedding chunk {i+1}/{len(df)}")
+            response = client.models.embed_content(
+                model=model,
+                contents=summary
+            )
+
+            all_embeddings.append(response.embeddings[0].values)
+
+            progress_bar.progress((i + 1) / len(df))
 
         df['embedding'] = all_embeddings
         progress_bar.empty()
         return df
 
-    except google.api_core.exceptions.ResourceExhausted as e:
-        handle_rate_limiting(e)
-        progress_bar.empty()
-        return None
     except Exception as e:
-        st.error(f"Failed to embed text. Is your API key valid? Error: {e}")
+        st.error(f"Embedding failed: {e}")
         progress_bar.empty()
         return None
 
