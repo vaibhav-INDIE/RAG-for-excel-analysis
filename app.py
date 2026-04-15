@@ -116,8 +116,7 @@ def generate_text_from_df(df, strategy, config, source_name):
 
 
 def embed_text(df):
-    """Embeds the 'summary' column of a DataFrame using Gemini."""
-    model = "models/text-embedding-004"
+    model = "text-embedding-004"
     if df.empty:
         st.warning("No text to embed.")
         return None
@@ -165,7 +164,12 @@ with st.sidebar:
 
     model_choice = st.selectbox(
         "🤖 Select Generative Model",
-        ("gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"),
+        (
+            "gemini-2.0-flash",        
+            "gemini-2.0-pro",          
+            "gemini-2.0-flash-lite",   
+            "gemini-1.5-pro-latest",  
+        ),
         index=0,
         disabled=not st.session_state.api_key_configured
     )
