@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import fitz  # PyMuPDF
-import google.generativeai as genai
-import google.api_core.exceptions
 import io
 import time
+from google import genai
+from google.genai import errors
 
 # --- Page Configuration ---
 st.set_page_config(page_title="🧾 Advanced Document Q&A", layout="wide")
@@ -127,7 +127,8 @@ def embed_text(df):
 
     try:
         for i, summary in enumerate(df['summary']):
-            response = client.models.embed_content(
+            # Access the client stored in session_state
+            response = st.session_state.client.models.embed_content(
                 model=model,
                 contents=summary
             )
@@ -153,10 +154,13 @@ with st.sidebar:
 
     if api_key:
         try:
-            genai.configure(api_key=api_key)
+            st.session_state.client = genai.Client(api_key=api_key)
+    
             if not st.session_state.api_key_configured:
                 st.success("API Key configured!", icon="🔑")
+    
             st.session_state.api_key_configured = True
+    
         except Exception as e:
             st.error(f"Invalid API Key: {e}")
             st.session_state.api_key_configured = False
@@ -295,9 +299,16 @@ if not st.session_state.knowledge_base_df.empty:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    question_emb = genai.embed_content(model="models/text-embedding-004", content=prompt)['embedding']
+                    # New SDK embedding generation
+                    response_emb = st.session_state.client.models.embed_content(
+                        model="text-embedding-004", 
+                        contents=prompt
+                    )
+                    question_emb = response_emb.embeddings[0].values
+                    
                     df = st.session_state.knowledge_base_df
                     df['distance'] = df['embedding'].apply(lambda x: np.dot(x, question_emb))
+                    
                     # Retrieve a few more chunks to give the model better context
                     top_k = df.sort_values("distance", ascending=False).head(7)
                     context = "\n\n---\n\n".join(top_k['summary'].values)
@@ -316,15 +327,25 @@ if not st.session_state.knowledge_base_df.empty:
 
                     ANSWER (Remember to cite your sources):
                     """
-                    model = genai.GenerativeModel(model_name=model_choice)
-                    response = model.generate_content(model_prompt)
+                    
+                    # New SDK content generation
+                    response = st.session_state.client.models.generate_content(
+                        model=model_choice,
+                        contents=model_prompt
+                    )
                     answer = response.text
+                    
                     st.markdown(answer)
                     st.session_state.messages.append({"role": "assistant", "content": answer})
 
-                except google.api_core.exceptions.ResourceExhausted as e:
-                    handle_rate_limiting(e)
+                except errors.APIError as e:
+                    if e.code == 429:
+                        handle_rate_limiting(e)
+                    else:
+                        error_message = f"An error occurred with the Gemini API: {e}"
+                        st.error(error_message)
+                        st.session_state.messages.append({"role": "assistant", "content": error_message})
                 except Exception as e:
-                    error_message = f"An error occurred with the Gemini API: {e}"
+                    error_message = f"An unexpected error occurred: {e}"
                     st.error(error_message)
                     st.session_state.messages.append({"role": "assistant", "content": error_message})
